@@ -1,0 +1,158 @@
+<title>구구단 칠판</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Do+Hyeon&family=Noto+Sans+KR:wght@400;600&display=swap">
+<style>
+  /* Layout: a chalkboard header with big 단 buttons, then the chosen table as large tappable rows; "전체" shows all tables in a grid. */
+  :root {
+    --bg: #eef3ef;
+    --board: #ffffff;
+    --ink: #1d3a2e;
+    --muted: #5e7a6c;
+    --line: #d3e0d8;
+    --accent: #2f7d57;
+    --accent-ink: #ffffff;
+    --chalk: #b7791f;
+    --font-display: "Do Hyeon", "Noto Sans KR", system-ui, sans-serif;
+    --font-body: "Noto Sans KR", system-ui, -apple-system, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #142019; --board: #1c2c23; --ink: #e8f1ea; --muted: #9db5a6;
+      --line: #2c4135; --accent: #6fcf97; --accent-ink: #0f1a14; --chalk: #f2c94c;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #142019; --board: #1c2c23; --ink: #e8f1ea; --muted: #9db5a6;
+    --line: #2c4135; --accent: #6fcf97; --accent-ink: #0f1a14; --chalk: #f2c94c;
+    color-scheme: dark;
+  }
+
+  html, body { background: var(--bg); color: var(--ink); }
+  body { font-family: var(--font-body); font-size: 16px; line-height: 1.5; }
+  .wrap { max-width: 920px; margin: 0 auto; padding-inline: 16px; padding-block: 24px 48px; display: grid; gap: 20px; }
+
+  header { display: grid; gap: 4px; }
+  h1 { font-family: var(--font-display); font-weight: 400; font-size: clamp(2.2rem, 6vw, 3.2rem); line-height: 1.1; margin: 0; text-wrap: balance; }
+  .sub { color: var(--muted); margin: 0; }
+
+  .picker { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+  @media (min-width: 640px) { .picker { grid-template-columns: repeat(10, 1fr); } }
+  .picker button {
+    font-family: var(--font-display); font-size: 1.6rem; min-height: 60px;
+    border: 2px solid var(--line); background: var(--board); color: var(--ink);
+    border-radius: 12px; cursor: pointer; touch-action: manipulation;
+  }
+  .picker button small { font-size: 0.9rem; color: var(--muted); }
+  .picker button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .picker button[aria-pressed="true"] small { color: inherit; }
+  button:focus-visible, .row:focus-visible { outline: 3px solid var(--chalk); outline-offset: 2px; }
+
+  .tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+  .toggle { display: flex; align-items: center; gap: 8px; font-weight: 600; cursor: pointer; }
+  .toggle input { width: 22px; height: 22px; accent-color: var(--accent); }
+  .hint { color: var(--muted); font-size: 0.9rem; }
+
+  .board { background: var(--board); border: 1px solid var(--line); border-radius: 16px; padding: 8px 0; }
+  .board h2 { font-family: var(--font-display); font-weight: 400; font-size: 2rem; margin: 8px 20px 4px; color: var(--accent); }
+  .row {
+    display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 4px 16px;
+    padding: 12px 20px; border-top: 1px solid var(--line); cursor: default;
+  }
+  .row:first-of-type { border-top: 0; }
+  .eq { font-family: var(--font-display); font-size: clamp(1.7rem, 5vw, 2.2rem); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .ans { color: var(--chalk); }
+  .say { color: var(--muted); font-size: 0.95rem; text-align: right; }
+  .hide .row { cursor: pointer; }
+  .hide .row:not(.shown) .ans { color: transparent; background: var(--line); border-radius: 8px; }
+  .hide .row:not(.shown) .say { visibility: hidden; }
+
+  .all { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+  .all .board h2 { font-size: 1.6rem; }
+  .all .row { padding: 6px 20px; grid-template-columns: 1fr; }
+  .all .eq { font-size: 1.35rem; }
+  .all .say { display: none; }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>구구단 칠판</h1>
+    <p class="sub">외우고 싶은 단을 눌러 보세요.</p>
+  </header>
+
+  <nav class="picker" id="picker" aria-label="단 선택"></nav>
+
+  <div class="tools">
+    <label class="toggle" for="practice">
+      <input type="checkbox" id="practice"> 답 가리고 연습하기
+    </label>
+    <span class="hint" id="hint" hidden>줄을 누르면 답이 보여요.</span>
+  </div>
+
+  <main id="out" aria-live="polite"></main>
+</div>
+
+<script>
+  const DIGITS = ["", "일", "이", "삼", "사", "오", "육", "칠", "팔", "구"];
+  // Sino-Korean reading, e.g. 56 → 오십육, 10 → 십
+  function read(n) {
+    const t = Math.floor(n / 10), o = n % 10;
+    return (t > 1 ? DIGITS[t] : "") + (t ? "십" : "") + DIGITS[o];
+  }
+
+  const picker = document.getElementById("picker");
+  const out = document.getElementById("out");
+  const practice = document.getElementById("practice");
+  const hint = document.getElementById("hint");
+  let current = 7;
+
+  for (let d = 2; d <= 9; d++) addButton(d, `${d}<small>단</small>`);
+  addButton("all", "전체");
+
+  function addButton(value, label) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.id = "dan-" + value;
+    b.innerHTML = label;
+    b.addEventListener("click", () => { current = value; render(); });
+    picker.appendChild(b);
+  }
+
+  function table(dan, withSay) {
+    let html = `<section class="board"><h2>${dan}단</h2>`;
+    for (let i = 1; i <= 9; i++) {
+      html += `<div class="row" tabindex="0">
+        <span class="eq">${dan} × ${i} = <span class="ans">${dan * i}</span></span>
+        ${withSay ? `<span class="say">${read(dan)}${read(i)} ${read(dan * i)}</span>` : ""}
+      </div>`;
+    }
+    return html + "</section>";
+  }
+
+  function render() {
+    for (const b of picker.children) b.setAttribute("aria-pressed", b.id === "dan-" + current);
+    if (current === "all") {
+      let html = '<div class="all">';
+      for (let d = 2; d <= 9; d++) html += table(d, false);
+      out.innerHTML = html + "</div>";
+    } else {
+      out.innerHTML = table(current, true);
+    }
+    out.classList.toggle("hide", practice.checked);
+    hint.hidden = !practice.checked;
+  }
+
+  out.addEventListener("click", e => {
+    const row = e.target.closest(".row");
+    if (row && practice.checked) row.classList.toggle("shown");
+  });
+  out.addEventListener("keydown", e => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("row") && practice.checked) {
+      e.preventDefault();
+      e.target.classList.toggle("shown");
+    }
+  });
+  practice.addEventListener("change", render);
+
+  render();
+</script>
